@@ -1,0 +1,174 @@
+name: Установленный managed portal, все25
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TEMPLATE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+  QUARTO_RUN_NO_NETWORK: 'true'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Portal ${{ matrix.phase }} (${{ matrix.quarto }})
+    runs-on: ubuntu-24.04
+    # 102/80 upper capture counts at30s are51/40min before children and guards.
+    # The required90min budgets include native PDF, current proofs and tool setup.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        quarto: ['1.10.18', '1.11.5']
+        phase: [composition, main-five]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TEMPLATE_HEAD }}
+          path: template
+          persist-credentials: false
+      - name: Точные provider refs из одного contract файла
+        id: refs
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          refs = json.loads(Path('template/tests/probes/portal-provider-refs.json').read_text())
+          assert set(refs) == {'publisher', 'qrc', 'core', 'download'}
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              for name, ref in refs.items():
+                  assert set(ref) == {'commit', 'tree'}
+                  assert all(re.fullmatch('[a-f0-9]{40}', value) for value in ref.values())
+                  out.write(f'{name}={ref["commit"]}\n')
+          PY
+      - name: Core, Presentation и Navigation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-course
+          ref: ${{ steps.refs.outputs.core }}
+          path: core
+          persist-credentials: false
+      - name: Managed Publisher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-project-publish
+          ref: ${{ steps.refs.outputs.publisher }}
+          path: publisher
+          persist-credentials: false
+      - name: Portal QRC
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-reference-catalog
+          ref: ${{ steps.refs.outputs.qrc }}
+          path: qrc
+          persist-credentials: false
+      - name: Native Download ownership
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-project-download
+          ref: ${{ steps.refs.outputs.download }}
+          path: download
+          persist-credentials: false
+      - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
+        with:
+          version: ${{ matrix.quarto }}
+      - uses: cue-lang/setup-cue@b0e30e540a2dae47304ebf16586a5b2db023b61c # v2.0.0
+        with:
+          version: v0.17.1
+      - name: Штатный PDF и шрифты
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends texlive-xetex texlive-latex-extra texlive-lang-cyrillic texlive-fonts-recommended lmodern fonts-lmodern fonts-dejavu poppler-utils file
+          kpsewhich lmodern.sty
+      - name: Своя genuine baseline и вся обязательная dependent phase
+        working-directory: template
+        run: |
+          export QUARTO="$(command -v quarto)"
+          quarto run tests/probes/portal-consumer.ts \
+            --publisher "$GITHUB_WORKSPACE/publisher" \
+            --qrc "$GITHUB_WORKSPACE/qrc" \
+            --core "$GITHUB_WORKSPACE/core" \
+            --download "$GITHUB_WORKSPACE/download" \
+            --phase '${{ matrix.phase }}' \
+            --output "$RUNNER_TEMP/portal-evidence"
+      - name: Итог или место первого отказа
+        if: always()
+        env:
+          PORTAL_EVIDENCE: ${{ runner.temp }}/portal-evidence
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['PORTAL_EVIDENCE'])
+          for name in ['install-manifest.json', 'phase-results.json', 'partial-results.json']:
+              path = root / name
+              if path.exists():
+                  value = json.loads(path.read_text())
+                  if name == 'install-manifest.json':
+                      value = {key:value[key] for key in ['phase', 'templateSource', 'versions', 'companionSources']}
+                  print(name, json.dumps(value, indent=2))
+          if not (root / 'phase-results.json').exists():
+              for path in sorted(root.glob('*.log')):
+                  print(path.name, path.read_text()[-12000:])
+          PY
+      - name: Полные native logs, observations, archives и phase receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: portal-${{ matrix.quarto }}-${{ matrix.phase }}
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/portal-evidence/*.json
+            ${{ runner.temp }}/portal-evidence/*.log
+            ${{ runner.temp }}/portal-evidence/archives/
+
+  complete:
+    name: Portal25, оба channels и обе phases
+    needs: native
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TEMPLATE_HEAD }}
+          path: template
+          persist-credentials: false
+      - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
+        with:
+          version: '1.10.18'
+      - name: Обязательные guards отсутствующих/подменённых receipts
+        working-directory: template
+        run: quarto run tests/probes/portal-receipt-guards.ts
+      - name: Только artifacts текущего workflow run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: portal-*
+          merge-multiple: false
+          digest-mismatch: error
+          path: ${{ runner.temp }}/portal-artifacts
+      - name: Required exacthead/provider/filemaps/counts aggregation
+        working-directory: template
+        env:
+          PORTAL_JOBS_RESULT: ${{ needs.native.result }}
+        run: |
+          quarto run tests/probes/portal-aggregate.ts \
+            --artifacts "$RUNNER_TEMP/portal-artifacts" \
+            --expected-head "$TEMPLATE_HEAD" \
+            --jobs-result "$PORTAL_JOBS_RESULT" \
+            --output "$RUNNER_TEMP/portal-complete-ci.json"
+      - name: Verified complete receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: portal-complete-receipt
+          if-no-files-found: error
+          path: ${{ runner.temp }}/portal-complete-ci.json

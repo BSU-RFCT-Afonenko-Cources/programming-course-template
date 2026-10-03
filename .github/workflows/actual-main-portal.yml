@@ -1,0 +1,441 @@
+name: Original course managed portal
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TEMPLATE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+  QUARTO_RUN_NO_NETWORK: 'true'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  student_release:
+    name: Original course student release (${{ matrix.quarto }})
+    runs-on: ubuntu-24.04
+    # The original 4 book inputs and 5 essay inputs plus Navigation use 38 captures.
+    # Each 150 minute job renders one fresh original-course attempt, preserving inputs.
+    # Current proofs, native members, PDF and setup are included in this budget.
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        quarto: ['1.10.18', '1.11.5']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TEMPLATE_HEAD }}
+          path: template
+          persist-credentials: false
+      - name: Exact provider refs from one contract file
+        id: refs
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          refs = json.loads(Path('template/tests/probes/portal-provider-refs.json').read_text())
+          assert set(refs) == {'publisher', 'qrc', 'core', 'download'}
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              for name, ref in refs.items():
+                  assert set(ref) == {'commit', 'tree'}
+                  assert all(re.fullmatch('[a-f0-9]{40}', value) for value in ref.values())
+                  out.write(f'{name}={ref["commit"]}\n')
+          PY
+      - name: Core, Presentation and Navigation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-course
+          ref: ${{ steps.refs.outputs.core }}
+          path: core
+          persist-credentials: false
+      - name: Managed Publisher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-project-publish
+          ref: ${{ steps.refs.outputs.publisher }}
+          path: publisher
+          persist-credentials: false
+      - name: Portal QRC
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-reference-catalog
+          ref: ${{ steps.refs.outputs.qrc }}
+          path: qrc
+          persist-credentials: false
+      - name: Native Download ownership
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-project-download
+          ref: ${{ steps.refs.outputs.download }}
+          path: download
+          persist-credentials: false
+      - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
+        with:
+          version: ${{ matrix.quarto }}
+      - uses: cue-lang/setup-cue@b0e30e540a2dae47304ebf16586a5b2db023b61c # v2.0.0
+        with:
+          version: v0.17.1
+      - name: Native PDF and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends texlive-xetex texlive-latex-extra texlive-lang-cyrillic texlive-fonts-recommended lmodern fonts-lmodern fonts-dejavu poppler-utils file
+          kpsewhich lmodern.sty
+      - name: Genuine original student release with fresh current proof
+        working-directory: template
+        run: |
+          export QUARTO="$(command -v quarto)"
+          quarto run tests/probes/actual-main-consumer.ts \
+            --phase student-release \
+            --publisher "$GITHUB_WORKSPACE/publisher" \
+            --qrc "$GITHUB_WORKSPACE/qrc" \
+            --core "$GITHUB_WORKSPACE/core" \
+            --download "$GITHUB_WORKSPACE/download" \
+            --output "$RUNNER_TEMP/actual-main-evidence"
+      - name: Release result or first refusal
+        if: always()
+        env:
+          ACTUAL_MAIN_EVIDENCE: ${{ runner.temp }}/actual-main-evidence
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['ACTUAL_MAIN_EVIDENCE'])
+          for name in ['install-manifest.json', 'phase-results.json', 'partial-results.json']:
+              path = root / name
+              if path.exists():
+                  print(name, json.dumps(json.loads(path.read_text()), indent=2))
+          if not (root / 'phase-results.json').exists():
+              for path in sorted(root.glob('*.log')):
+                  print(path.name, path.read_text()[-12000:])
+          PY
+      - name: Complete release logs, maps, archives and public publications
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: actual-main-native-${{ matrix.quarto }}-student-release
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/actual-main-evidence/*.json
+            ${{ runner.temp }}/actual-main-evidence/*.jsonl
+            ${{ runner.temp }}/actual-main-evidence/*.log
+            ${{ runner.temp }}/actual-main-evidence/archives/
+            ${{ runner.temp }}/actual-main-evidence/failure-diagnostics/
+            ${{ runner.temp }}/actual-main-evidence/publications.tar.gz
+      - name: Verified public baseline only for downstream preservation
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: actual-main-public-${{ matrix.quarto }}-student-release
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/actual-main-evidence/publications.tar.gz
+            ${{ runner.temp }}/actual-main-evidence/public-baseline.json
+
+  full_release:
+    name: Original course full release (${{ matrix.quarto }})
+    needs: student_release
+    runs-on: ubuntu-24.04
+    # The original 4 book inputs and 5 essay inputs plus Navigation use 38 captures.
+    # Each 150 minute job renders one fresh original-course attempt, preserving inputs.
+    # Current proofs, native members, PDF and setup are included in this budget.
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        quarto: ['1.10.18', '1.11.5']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TEMPLATE_HEAD }}
+          path: template
+          persist-credentials: false
+      - name: Exact provider refs from one contract file
+        id: refs
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          refs = json.loads(Path('template/tests/probes/portal-provider-refs.json').read_text())
+          assert set(refs) == {'publisher', 'qrc', 'core', 'download'}
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              for name, ref in refs.items():
+                  assert set(ref) == {'commit', 'tree'}
+                  assert all(re.fullmatch('[a-f0-9]{40}', value) for value in ref.values())
+                  out.write(f'{name}={ref["commit"]}\n')
+          PY
+      - name: Core, Presentation and Navigation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-course
+          ref: ${{ steps.refs.outputs.core }}
+          path: core
+          persist-credentials: false
+      - name: Managed Publisher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-project-publish
+          ref: ${{ steps.refs.outputs.publisher }}
+          path: publisher
+          persist-credentials: false
+      - name: Portal QRC
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-reference-catalog
+          ref: ${{ steps.refs.outputs.qrc }}
+          path: qrc
+          persist-credentials: false
+      - name: Native Download ownership
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-project-download
+          ref: ${{ steps.refs.outputs.download }}
+          path: download
+          persist-credentials: false
+      - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
+        with:
+          version: ${{ matrix.quarto }}
+      - uses: cue-lang/setup-cue@b0e30e540a2dae47304ebf16586a5b2db023b61c # v2.0.0
+        with:
+          version: v0.17.1
+      - name: Native PDF and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends texlive-xetex texlive-latex-extra texlive-lang-cyrillic texlive-fonts-recommended lmodern fonts-lmodern fonts-dejavu poppler-utils file
+          kpsewhich lmodern.sty
+      - name: Same-run same-channel completed public student baseline
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: actual-main-public-${{ matrix.quarto }}-student-release
+          digest-mismatch: error
+          path: ${{ runner.temp }}/actual-main-baseline
+      - name: Genuine original full release with fresh current proof
+        working-directory: template
+        run: |
+          export QUARTO="$(command -v quarto)"
+          quarto run tests/probes/actual-main-consumer.ts \
+            --phase full-release \
+            --baseline "$RUNNER_TEMP/actual-main-baseline" \
+            --publisher "$GITHUB_WORKSPACE/publisher" \
+            --qrc "$GITHUB_WORKSPACE/qrc" \
+            --core "$GITHUB_WORKSPACE/core" \
+            --download "$GITHUB_WORKSPACE/download" \
+            --output "$RUNNER_TEMP/actual-main-evidence"
+      - name: Release result or first refusal
+        if: always()
+        env:
+          ACTUAL_MAIN_EVIDENCE: ${{ runner.temp }}/actual-main-evidence
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['ACTUAL_MAIN_EVIDENCE'])
+          for name in ['install-manifest.json', 'phase-results.json', 'partial-results.json']:
+              path = root / name
+              if path.exists():
+                  print(name, json.dumps(json.loads(path.read_text()), indent=2))
+          if not (root / 'phase-results.json').exists():
+              for path in sorted(root.glob('*.log')):
+                  print(path.name, path.read_text()[-12000:])
+          PY
+      - name: Complete release logs, maps, archives and public publications
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: actual-main-native-${{ matrix.quarto }}-full-release
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/actual-main-evidence/*.json
+            ${{ runner.temp }}/actual-main-evidence/*.jsonl
+            ${{ runner.temp }}/actual-main-evidence/*.log
+            ${{ runner.temp }}/actual-main-evidence/archives/
+            ${{ runner.temp }}/actual-main-evidence/failure-diagnostics/
+            ${{ runner.temp }}/actual-main-evidence/publications.tar.gz
+      - name: Verified public baseline only for downstream preservation
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: actual-main-public-${{ matrix.quarto }}-full-release
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/actual-main-evidence/publications.tar.gz
+            ${{ runner.temp }}/actual-main-evidence/public-baseline.json
+
+  late:
+    name: Original course fresh late check (${{ matrix.quarto }})
+    needs: full_release
+    runs-on: ubuntu-24.04
+    # A fresh original-course attempt uses 38 captures; budget conservatively 40.
+    # The 150 minute single-attempt budget includes current proofs, members and PDF.
+    # Only completed public trees seed preservation checks. Current source,
+    # installations, owners, native captures and publication proofs are fresh.
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        quarto: ['1.10.18', '1.11.5']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TEMPLATE_HEAD }}
+          path: template
+          persist-credentials: false
+      - name: Exact provider refs from one contract file
+        id: refs
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          refs = json.loads(Path('template/tests/probes/portal-provider-refs.json').read_text())
+          assert set(refs) == {'publisher', 'qrc', 'core', 'download'}
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              for name, ref in refs.items():
+                  assert set(ref) == {'commit', 'tree'}
+                  assert all(re.fullmatch('[a-f0-9]{40}', value) for value in ref.values())
+                  out.write(f'{name}={ref["commit"]}\n')
+          PY
+      - name: Core, Presentation and Navigation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-course
+          ref: ${{ steps.refs.outputs.core }}
+          path: core
+          persist-credentials: false
+      - name: Managed Publisher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-project-publish
+          ref: ${{ steps.refs.outputs.publisher }}
+          path: publisher
+          persist-credentials: false
+      - name: Portal QRC
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-reference-catalog
+          ref: ${{ steps.refs.outputs.qrc }}
+          path: qrc
+          persist-credentials: false
+      - name: Native Download ownership
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Afonenko-Course-Tools/quarto-project-download
+          ref: ${{ steps.refs.outputs.download }}
+          path: download
+          persist-credentials: false
+      - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
+        with:
+          version: ${{ matrix.quarto }}
+      - uses: cue-lang/setup-cue@b0e30e540a2dae47304ebf16586a5b2db023b61c # v2.0.0
+        with:
+          version: v0.17.1
+      - name: Native PDF and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends texlive-xetex texlive-latex-extra texlive-lang-cyrillic texlive-fonts-recommended lmodern fonts-lmodern fonts-dejavu poppler-utils file
+          kpsewhich lmodern.sty
+      - name: Same-run same-channel completed public baseline
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: actual-main-public-${{ matrix.quarto }}-full-release
+          digest-mismatch: error
+          path: ${{ runner.temp }}/actual-main-baseline
+      - name: Fresh current proof and preservation after late refusal
+        working-directory: template
+        run: |
+          export QUARTO="$(command -v quarto)"
+          quarto run tests/probes/actual-main-consumer.ts \
+            --phase late \
+            --baseline "$RUNNER_TEMP/actual-main-baseline" \
+            --publisher "$GITHUB_WORKSPACE/publisher" \
+            --qrc "$GITHUB_WORKSPACE/qrc" \
+            --core "$GITHUB_WORKSPACE/core" \
+            --download "$GITHUB_WORKSPACE/download" \
+            --output "$RUNNER_TEMP/actual-main-evidence"
+      - name: Late result or first refusal
+        if: always()
+        env:
+          ACTUAL_MAIN_EVIDENCE: ${{ runner.temp }}/actual-main-evidence
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['ACTUAL_MAIN_EVIDENCE'])
+          for name in ['install-manifest.json', 'phase-results.json', 'partial-results.json']:
+              path = root / name
+              if path.exists():
+                  print(name, json.dumps(json.loads(path.read_text()), indent=2))
+          if not (root / 'phase-results.json').exists():
+              for path in sorted(root.glob('*.log')):
+                  print(path.name, path.read_text()[-12000:])
+          PY
+      - name: Complete fresh late logs, maps, archives and phase receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: actual-main-native-${{ matrix.quarto }}-late
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/actual-main-evidence/*.json
+            ${{ runner.temp }}/actual-main-evidence/*.jsonl
+            ${{ runner.temp }}/actual-main-evidence/*.log
+            ${{ runner.temp }}/actual-main-evidence/archives/
+            ${{ runner.temp }}/actual-main-evidence/failure-diagnostics/
+            ${{ runner.temp }}/actual-main-evidence/publications.tar.gz
+
+  complete:
+    name: Original course, both channels and all three phases
+    needs: [student_release, full_release, late]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TEMPLATE_HEAD }}
+          path: template
+          persist-credentials: false
+      - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
+        with:
+          version: '1.10.18'
+      - name: Required original-course receipt guards
+        working-directory: template
+        run: |
+          quarto run tests/probes/actual-main-receipt-guards.ts
+          quarto run tests/probes/actual-main-transfer-guards.ts
+          quarto run tests/probes/actual-main-public-guards.ts
+          quarto run tests/probes/actual-main-split-guards.ts
+      - name: Only artifacts from the current workflow run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: actual-main-native-*
+          merge-multiple: false
+          digest-mismatch: error
+          path: ${{ runner.temp }}/actual-main-artifacts
+      - name: Required exact-head, provider, maps and genuine-course aggregation
+        working-directory: template
+        env:
+          ACTUAL_MAIN_STUDENT_JOBS_RESULT: ${{ needs.student_release.result }}
+          ACTUAL_MAIN_FULL_JOBS_RESULT: ${{ needs.full_release.result }}
+          ACTUAL_MAIN_LATE_JOBS_RESULT: ${{ needs.late.result }}
+        run: |
+          quarto run tests/probes/actual-main-aggregate.ts \
+            --artifacts "$RUNNER_TEMP/actual-main-artifacts" \
+            --expected-head "$TEMPLATE_HEAD" \
+            --student-jobs-result "$ACTUAL_MAIN_STUDENT_JOBS_RESULT" \
+            --full-jobs-result "$ACTUAL_MAIN_FULL_JOBS_RESULT" \
+            --late-jobs-result "$ACTUAL_MAIN_LATE_JOBS_RESULT" \
+            --output "$RUNNER_TEMP/actual-main-complete-ci.json"
+      - name: Verified original-course complete receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: actual-main-complete-receipt
+          if-no-files-found: error
+          path: ${{ runner.temp }}/actual-main-complete-ci.json

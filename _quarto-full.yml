@@ -1,2 +1,4 @@
-project:
+course:
+  view: full
+project-publish:
   output-dir: _site-full

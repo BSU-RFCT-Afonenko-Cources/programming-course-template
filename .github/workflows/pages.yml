@@ -19,11 +19,13 @@ jobs:
   check:
     name: Проверка (${{ matrix.quarto }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The original 4 book inputs and 5 essay inputs plus Navigation use 76 captures/profile pair.
+    # The 240 minute budget preserves both profiles, members/PDF, external and optional checks.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
-        quarto: [release, pre-release]
+        quarto: ['1.10.18', '1.11.5']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -33,7 +35,7 @@ jobs:
           version: ${{ matrix.quarto }}
       - uses: cue-lang/setup-cue@b0e30e540a2dae47304ebf16586a5b2db023b61c # v2.0.0
         with:
-          version: latest
+          version: v0.17.1
       - name: Средства сборки PDF и шрифты
         run: |
           sudo apt-get update
@@ -49,7 +51,7 @@ jobs:
           quarto run tests/external.ts
       - name: Загрузка проверенной студенческой публикации
         if: >-
-          matrix.quarto == 'release' &&
+          matrix.quarto == '1.10.18' &&
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
           github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

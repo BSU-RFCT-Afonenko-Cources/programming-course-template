@@ -5,6 +5,7 @@ project:
 lang: ru
 format:
   pdf:
+    output-file: contracts.pdf
     pdf-engine: xelatex
     papersize: a4
     fontsize: 11pt

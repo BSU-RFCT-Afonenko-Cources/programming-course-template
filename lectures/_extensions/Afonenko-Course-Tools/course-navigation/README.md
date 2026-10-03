@@ -63,5 +63,5 @@ format:
 Локальная проверка модели из этого каталога:
 
 ```sh
-node --test navigation/model.test.cjs
+node --test tests/navigation-model.cjs # из корня репозитория
 ```

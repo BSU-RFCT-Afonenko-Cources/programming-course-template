@@ -2,6 +2,7 @@ project:
   pre-render:
     - _extensions/Afonenko-Course-Tools/course-core/entrypoints/pre.ts
     - _extensions/Afonenko-Course-Tools/project-download/entrypoints/pre.ts
+    - _extensions/Afonenko-Course-Tools/course-core/entrypoints/owner-freeze.ts
   post-render:
     - _extensions/Afonenko-Course-Tools/course-core/entrypoints/post.ts
     - _extensions/Afonenko-Course-Tools/project-download/entrypoints/post.ts
@@ -14,6 +15,11 @@ project:
     - "!_generated/**"
 book:
   title: Учебный курс
+  sidebar:
+    tools:
+      - icon: house
+        href: ../index.html#sec-course
+        text: Навигация курса
   chapters:
     - index.qmd
     - topics/contracts/index.qmd
@@ -30,9 +36,9 @@ course:
   id: course
   validate: true
 filters:
-  - project-download
   - course-core
   - course-presentation
+  - project-download
 
 profile:
   default: student

@@ -7,13 +7,13 @@
 
 ## Запуск
 
-Нужны актуальные Quarto, CUE, XeLaTeX и шрифты DejaVu. TypeScript и Lua запускает
+Проверяемые версии: Quarto 1.10.18 и 1.11.5, CUE 0.17.1. Для PDF нужны XeLaTeX и шрифты DejaVu. TypeScript и Lua запускает
 Quarto; отдельные Python, Node.js и Deno не требуются. В Linux Debian/Ubuntu зависимости
 PDF предоставляет `texlive-xetex texlive-latex-extra texlive-lang-cyrillic texlive-fonts-recommended fonts-lmodern fonts-dejavu`.
 
 ```sh
-quarto render --profile student
-quarto render --profile full
+quarto run _extensions/Afonenko-Course-Tools/project-publish/entrypoints/render.ts --profile student
+quarto run _extensions/Afonenko-Course-Tools/project-publish/entrypoints/render.ts --profile full
 quarto preview --profile student --no-browser --port 4200
 quarto run tests/check.ts
 ```
@@ -65,7 +65,8 @@ quarto run tests/check.ts
 
 ```yaml
 project-publish:
-  home: book
+  portal: index.qmd
+  output-dir: _site
   projects:
     book: {path: book, format: html}
     lectures: {path: lectures, format: revealjs}
@@ -73,13 +74,33 @@ project-publish:
     essay: {path: essay, format: html}
     handouts: {path: handouts, format: pdf, mount: handouts}
   integrations:
+    - _publication/prepare.ts
     - _extensions/Afonenko-Course-Tools/reference-catalog/entrypoints/publication.ts
+    - _publication/finish.ts
+    - _publication/verify.ts
 ```
 
-Книга размещается в корне сайта вместе с оглавлением и поиском. Остальные части
-получают свои каталоги. PDF собирается из QMD при каждой сборке; бинарный файл
-не хранится в Git и не превращается в HTML. Ссылка из главной страницы ведёт на
-`handouts/contracts.pdf`.
+Корневой `index.qmd` содержит навигацию на все пять частей; книга размещается в
+`book/`. Каждый подпроект сохраняет собственные native границы и поиск. Native
+outer output находится в `.project-publish/native`, а выбранный профиль задаёт
+публичный каталог через `project-publish.output-dir`. PDF собирается из QMD при каждой сборке; бинарный файл
+не хранится в Git и не превращается в HTML. Ссылка из корневой страницы ведёт на
+`handouts/contracts.pdf`; из книги — на `../handouts/contracts.pdf`. Навигация
+книги и исследований возвращает на корневой `index.html`.
+
+Перед render установленные public Core API готовят navigation-only root и
+отдельные текущие book/essay owners. Metadata привязывает каждый handle к его
+фактическому native output. После QRC сначала завершаются children и их текущие
+resource/address proofs, затем navigation и scoped publication receipt. Последний
+configured callback повторно проверяет текущие bytes перед commit. Root не
+поддерживает педагогические canonical blocks или executable engines; новые такие
+элементы требуют отдельного документированного provider контракта.
+
+При штатном отказе этого managed пути прежние полные student/full publications
+сохраняются. Для командной строки используйте показанный `render.ts`: он проверяет
+`--profile` и запрещает `--output-dir` до native Quarto. Обычный `quarto render`
+по authored config поддержан; произвольные direct native overrides публичного
+каталога вне гарантии hooks. Preview использует тот же безопасный путь.
 
 Внутри книги используйте `@sec-contracts`, между подпроектами —
 `@book:sec-contracts`, `@lectures:sec-contracts`, `@practice:sec-clamp` и

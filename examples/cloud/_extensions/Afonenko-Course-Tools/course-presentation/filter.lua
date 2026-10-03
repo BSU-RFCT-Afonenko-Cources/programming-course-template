@@ -20,8 +20,10 @@ return {{Pandoc = function(doc)
   local cfg = config.read(doc.meta)
   doc.blocks = transform(doc.blocks, nil, cfg)
   if cfg.html then
-    quarto.doc.add_html_dependency({name = "course-presentation", version = "0.1.0",
-      stylesheets = {"presentation.css"}, scripts = {"disclosure.js", "presentation.js"}})
+    -- Public producer declaration; these exact attribs witness current native tags.
+    local descriptor=assert(io.open(quarto.utils.resolve_path("html-dependency.json"),'r'))
+    local dependency=quarto.json.decode(descriptor:read('*a'));descriptor:close()
+    quarto.doc.add_html_dependency(dependency)
   end
   return doc
 end}}

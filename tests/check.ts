@@ -28,12 +28,21 @@ if (!Deno.args.includes("--skip-render")) {
     assert(result.success, `Не удалось собрать профиль ${profile}`);
     for (const example of ["cloud", "prairielearn"]) {
       const optional = await new Deno.Command(quarto, {
-        args: ["render", `examples/${example}`, "--profile", profile, "--fail-if-warnings"],
+        args: [
+          "render",
+          `examples/${example}`,
+          "--profile",
+          profile,
+          "--fail-if-warnings",
+        ],
         cwd: root,
         stdout: "inherit",
         stderr: "inherit",
       }).output();
-      assert(optional.success, `Не удалось собрать самостоятельный пример ${example}/${profile}`);
+      assert(
+        optional.success,
+        `Не удалось собрать самостоятельный пример ${example}/${profile}`,
+      );
     }
   }
 }
@@ -61,8 +70,14 @@ for (const profile of ["student", "full"]) {
   const output = join(root, `_site-${profile}`), paths = await files(output);
   const archives = paths.filter((path) => path.endsWith(".zip"));
   const pdf = await Deno.readFile(join(output, "handouts/contracts.pdf"));
-  assert(new TextDecoder().decode(pdf.subarray(0, 5)) === "%PDF-", "Раздатка не собрана в PDF");
-  assert(!paths.some((path) => /handouts\/.*\.html$/.test(path)), "PDF-раздатка дополнительно отрендерилась в HTML");
+  assert(
+    new TextDecoder().decode(pdf.subarray(0, 5)) === "%PDF-",
+    "Раздатка не собрана в PDF",
+  );
+  assert(
+    !paths.some((path) => /handouts\/.*\.html$/.test(path)),
+    "PDF-раздатка дополнительно отрендерилась в HTML",
+  );
   assert(
     archives.length === (profile === "full" ? 6 : 2),
     `${profile}: неверное число архивов (${archives.length})`,
@@ -70,8 +85,10 @@ for (const profile of ["student", "full"]) {
   for (const archive of archives) {
     const names = zipNames(await Deno.readFile(archive));
     if (archive.endsWith("observations.zip")) {
-      assert(names.includes("observations.csv") && names.includes("README.md"),
-        `Не собран ресурс, независимый от задания: ${archive}`);
+      assert(
+        names.includes("observations.csv") && names.includes("README.md"),
+        `Не собран ресурс, независимый от задания: ${archive}`,
+      );
       continue;
     }
     assert(
@@ -94,6 +111,7 @@ for (const profile of ["student", "full"]) {
     "Каталог использует устаревшую схему",
   );
   const exports = [
+    "site:sec-course",
     "book:sec-contracts",
     "book:sec-contract-demo",
     "essay:sec-essays",
@@ -111,9 +129,24 @@ for (const profile of ["student", "full"]) {
     join(output, "practice/01/clamp.html"),
   );
   const demonstration = await Deno.readTextFile(
-    join(output, "topics/contracts/demonstration.html"),
+    join(output, "book/topics/contracts/demonstration.html"),
   );
-  const home = await Deno.readTextFile(join(output, "index.html"));
+  const home = await Deno.readTextFile(join(output, "book/index.html"));
+  const portal = await Deno.readTextFile(join(output, "index.html"));
+  for (const mount of ["book", "lectures", "practice", "essay", "handouts"]) {
+    assert(
+      portal.includes(`${mount}/`),
+      `Навигация не связана с частью ${mount}`,
+    );
+  }
+  assert(
+    /href="\.\.\/index\.html(?:#sec-course)?"/.test(home),
+    "Нет перехода книги к навигации курса",
+  );
+  assert(
+    (await Deno.stat(join(output, "book/assets/contract.svg"))).isFile,
+    "Потерян ресурс исходной книги",
+  );
   const essay = await Deno.readTextFile(
     join(output, "essay/text/decoding/index.html"),
   );
@@ -148,7 +181,8 @@ for (const profile of ["student", "full"]) {
   );
   for (const path of paths) {
     assert(
-      !/\.(qmd|java|gradle|tsv|csv)$/.test(path) && !path.includes("/_extensions/"),
+      !/\.(qmd|java|gradle|tsv|csv)$/.test(path) &&
+        !path.includes("/_extensions/"),
       `Опубликован исходный или служебный файл: ${path}`,
     );
     if (!path.endsWith(".html") && !path.endsWith("search.json")) continue;

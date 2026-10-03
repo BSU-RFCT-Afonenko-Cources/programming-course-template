@@ -1,0 +1,7 @@
+# Учебный курс {#sec-course}
+
+- [Книга: теория, задания и лабораторные занятия](book/index.html).
+- [Лекции](lectures/01/contracts.html).
+- [Практические занятия](practice/01/clamp.html).
+- [Исследовательские работы](essay/index.html).
+- [Раздаточные материалы в PDF](handouts/contracts.pdf).

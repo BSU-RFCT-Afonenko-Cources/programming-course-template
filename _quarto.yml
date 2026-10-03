@@ -1,21 +1,47 @@
 project:
   type: website
-  output-dir: _site
+  output-dir: .project-publish/native
   render: []
-  pre-render: _extensions/Afonenko-Course-Tools/project-publish/entrypoints/pre.ts
+  resources:
+    - "!book/**"
+    - "!lectures/**"
+    - "!practice/**"
+    - "!essay/**"
+    - "!handouts/**"
+    - "!examples/**"
+    - "!fixtures/**"
+    - "!tests/**"
+    - "!docs/**"
+    - "!_extensions/**"
+    - "!_publication/**"
+    - "!.project-publish/**"
+    - "!_generated/**"
+    - "!_site*/**"
+  pre-render:
+    - _extensions/Afonenko-Course-Tools/project-publish/entrypoints/pre.ts
+    - _extensions/Afonenko-Course-Tools/course-core/entrypoints/owner-freeze.ts
   post-render: _extensions/Afonenko-Course-Tools/project-publish/entrypoints/post.ts
   preview:
     watch-inputs: false
     serve:
-      cmd: "quarto run ../.project-publish/preview.ts --port {port} --host {host}"
+      cmd: "quarto run ../preview.ts --port {port} --host {host}"
       ready: "Публикация предпросмотр готов"
+format: html
+lang: ru
+course:
+  id: template-navigation
+website:
+  title: Учебный курс
+  search: true
 filters:
+  - course-core
   - reference-catalog
 reference-catalog:
   namespace: site
   publication:
     title: Учебный курс
   exports:
+    site: [sec-course]
     book: [sec-contracts, sec-contract-demo]
     essay: [sec-essays, sec-utf8-policies]
   imports:
@@ -30,7 +56,8 @@ profile:
   group: [[student, full]]
 
 project-publish:
-  home: book
+  portal: index.qmd
+  output-dir: _site
   projects:
     book: {path: book, format: html}
     lectures: {path: lectures, format: revealjs}
@@ -38,4 +65,7 @@ project-publish:
     essay: {path: essay, format: html}
     handouts: {path: handouts, format: pdf, mount: handouts}
   integrations:
+    - _publication/prepare.ts
     - _extensions/Afonenko-Course-Tools/reference-catalog/entrypoints/publication.ts
+    - _publication/finish.ts
+    - _publication/verify.ts

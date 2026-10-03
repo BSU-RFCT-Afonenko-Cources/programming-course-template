@@ -1,0 +1,9 @@
+{
+  "lateRefusal": "SOURCE.PUBLICATION_ADDRESS_CHANGED",
+  "adapterSlots": {
+    "prepare": "_publication/prepare.ts",
+    "finish": "_publication/finish.ts",
+    "verify": "_publication/verify.ts",
+    "state": "_publication/state.ts"
+  }
+}
